@@ -14,6 +14,7 @@ F:\deepclaude
     main.py
     config.py
     deepseek_client.py
+    protocol.py
     run_events.py
     state
       store.py
