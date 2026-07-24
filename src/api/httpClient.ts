@@ -1,5 +1,6 @@
 import type { AgentClient } from "./client";
 import type {
+  AgentMessage,
   AgentTask,
   ApprovalInput,
   CreateTaskInput,
@@ -21,6 +22,20 @@ interface BackendTask {
   summary?: string;
   rolloutPath?: string;
   rollout_path?: string;
+}
+
+interface BackendMessage {
+  id: string;
+  taskId?: string;
+  task_id?: string;
+  parentMessageId?: string | null;
+  parent_message_id?: string | null;
+  role: AgentMessage["role"] | "system";
+  content: string;
+  itemJson?: Record<string, unknown>;
+  item_json?: Record<string, unknown>;
+  createdAt?: string;
+  created_at?: string;
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -59,9 +74,22 @@ function toAgentTask(task: BackendTask): AgentTask {
   };
 }
 
+function toAgentMessage(message: BackendMessage): AgentMessage {
+  const role = message.role === "system" ? "assistant" : message.role;
+  return {
+    id: message.id,
+    role,
+    title: role === "user" ? "你" : role === "tool" ? "工具调用" : "DeepClaude",
+    text: message.content,
+  };
+}
+
 async function refreshTask(taskId: string): Promise<AgentTask | undefined> {
-  const tasks = await httpClient.listTasks();
-  return tasks.find((task) => task.id === taskId);
+  const data = await requestJson<{ task: BackendTask; messages: BackendMessage[] }>(`/api/tasks/${taskId}`);
+  return {
+    ...toAgentTask(data.task),
+    messages: data.messages.map(toAgentMessage),
+  };
 }
 
 export const httpClient: AgentClient = {

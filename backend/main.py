@@ -59,6 +59,15 @@ async def list_tasks() -> dict[str, object]:
     return {"tasks": get_store().list_tasks()}
 
 
+@app.get("/api/tasks/{task_id}")
+async def get_task(task_id: str) -> dict[str, object]:
+    store = get_store()
+    return {
+        "task": store.get_task(task_id),
+        "messages": store.list_messages(task_id),
+    }
+
+
 @app.post("/api/tasks")
 async def create_task(request: TaskCreateRequest) -> dict[str, str]:
     settings = get_settings()
