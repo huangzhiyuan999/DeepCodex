@@ -4,6 +4,7 @@ dist/
 .env
 __pycache__/
 *.pyc
+backend/data/
 *.tsbuildinfo
 vite.config.js
 vite.config.d.ts

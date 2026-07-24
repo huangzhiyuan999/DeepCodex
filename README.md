@@ -15,6 +15,8 @@ F:\deepclaude
     config.py
     deepseek_client.py
     run_events.py
+    state
+      store.py
     requirements.txt
   src
     api
@@ -56,6 +58,21 @@ python -m venv .venv
 ```
 
 Python packages should stay inside `.venv`.
+
+## Local Storage
+
+The first storage module follows the CodeWhale-style local-first design:
+
+```text
+backend/data/deepclaude.sqlite
+backend/data/session_index.jsonl
+backend/data/sessions/*.jsonl
+backend/data/logs/*.log
+```
+
+- SQLite stores structured state: tasks, messages, approvals, tool calls, checkpoints, jobs, workflow runs, and goals.
+- JSONL stores append-only session events for replay, recovery, and debugging.
+- Runtime data under `backend/data/` is ignored by Git.
 
 ## DeepSeek Config
 
