@@ -1,6 +1,4 @@
-import type {
-  AgentClient,
-} from "./client";
+import type { AgentClient } from "./client";
 import type {
   AgentTask,
   ApprovalInput,
@@ -11,6 +9,7 @@ import type {
 } from "./types";
 
 const apiBaseUrl = import.meta.env.VITE_API_BASE_URL || "http://127.0.0.1:8000";
+const activeRunByTask = new Map<string, string>();
 
 interface BackendTask {
   id: string;
@@ -22,10 +21,6 @@ interface BackendTask {
   summary?: string;
   rolloutPath?: string;
   rollout_path?: string;
-  createdAt?: string;
-  created_at?: string;
-  updatedAt?: string;
-  updated_at?: string;
 }
 
 async function requestJson<T>(path: string, init?: RequestInit): Promise<T> {
@@ -64,6 +59,11 @@ function toAgentTask(task: BackendTask): AgentTask {
   };
 }
 
+async function refreshTask(taskId: string): Promise<AgentTask | undefined> {
+  const tasks = await httpClient.listTasks();
+  return tasks.find((task) => task.id === taskId);
+}
+
 export const httpClient: AgentClient = {
   async listTasks() {
     const data = await requestJson<{ tasks: BackendTask[] }>("/api/tasks");
@@ -79,12 +79,12 @@ export const httpClient: AgentClient = {
   },
 
   async sendMessage(input: SendMessageInput) {
-    await requestJson<{ id: string }>("/api/runs", {
+    const run = await requestJson<{ id: string }>("/api/runs", {
       method: "POST",
       body: JSON.stringify({ task_id: input.taskId, prompt: input.prompt }),
     });
-    const tasks = await this.listTasks();
-    return tasks.find((task) => task.id === input.taskId) ?? toAgentTask({ id: input.taskId, title: "Agent task", status: "running" });
+    activeRunByTask.set(input.taskId, run.id);
+    return (await refreshTask(input.taskId)) ?? toAgentTask({ id: input.taskId, title: "Agent task", status: "running" });
   },
 
   async startRun(taskId: string) {
@@ -92,7 +92,12 @@ export const httpClient: AgentClient = {
   },
 
   async stopRun(taskId: string) {
-    return toAgentTask({ id: taskId, title: "Agent task", status: "stopped", summary: "已停止" });
+    const runId = activeRunByTask.get(taskId);
+    if (runId) {
+      await requestJson<{ id: string; status: string }>(`/api/runs/${runId}/stop`, { method: "POST" });
+      activeRunByTask.delete(taskId);
+    }
+    return (await refreshTask(taskId)) ?? toAgentTask({ id: taskId, title: "Agent task", status: "stopped", summary: "已停止" });
   },
 
   async approveCommand(input: ApprovalInput) {
@@ -100,14 +105,34 @@ export const httpClient: AgentClient = {
       method: "POST",
       body: JSON.stringify({ decision: input.decision }),
     });
-    return toAgentTask({
-      id: input.taskId,
-      title: "Agent task",
-      status: input.decision === "allow" ? "approved" : "denied",
-    });
+    return (
+      (await refreshTask(input.taskId)) ??
+      toAgentTask({
+        id: input.taskId,
+        title: "Agent task",
+        status: input.decision === "allow" ? "approved" : "denied",
+      })
+    );
   },
 
-  subscribeRunEvents(_taskId: string, _handler: RunEventHandler): Unsubscribe {
-    return () => undefined;
+  subscribeRunEvents(taskId: string, handler: RunEventHandler): Unsubscribe {
+    const source = new EventSource(`${apiBaseUrl}/api/tasks/${taskId}/events`);
+    const eventNames = ["run_started", "tool_call_finished", "message_added", "run_completed", "run_failed", "run_stopped"];
+
+    const handleEvent = () => {
+      void refreshTask(taskId).then((task) => {
+        if (task) handler({ type: "task_updated", task });
+      });
+    };
+
+    eventNames.forEach((eventName) => {
+      source.addEventListener(eventName, handleEvent);
+    });
+
+    source.onerror = () => {
+      source.close();
+    };
+
+    return () => source.close();
   },
 };

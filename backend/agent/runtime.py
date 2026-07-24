@@ -23,10 +23,7 @@ class AgentRuntime:
         self.event_bus = event_bus
 
     async def run(self, request: AgentRunRequest) -> None:
-        await self.event_bus.publish(
-            request.run_id,
-            RunEvent(type="run_started", payload={"taskId": request.task_id}),
-        )
+        await self._publish(request, RunEvent(type="run_started", payload={"taskId": request.task_id}))
         self.store.update_task_status(request.task_id, "running", "运行中 · 正在整理工作区上下文")
 
         try:
@@ -41,8 +38,8 @@ class AgentRuntime:
                 input_json={"maxFiles": 60, "maxDiffChars": 12000},
                 output_json={"filesCount": len(files), "diffChars": len(diff)},
             )
-            await self.event_bus.publish(
-                request.run_id,
+            await self._publish(
+                request,
                 RunEvent(
                     type="tool_call_finished",
                     payload={"taskId": request.task_id, "name": "workspace_context", "filesCount": len(files)},
@@ -53,21 +50,22 @@ class AgentRuntime:
             self.store.add_message(request.task_id, "assistant", assistant_text)
             self.store.update_job_status(request.run_id, "completed")
             self.store.update_task_status(request.task_id, "completed", "已完成 · agent 回复已生成")
-            await self.event_bus.publish(
-                request.run_id,
+            await self._publish(
+                request,
                 RunEvent(type="message_added", payload={"taskId": request.task_id, "role": "assistant", "content": assistant_text}),
             )
-            await self.event_bus.publish(
-                request.run_id,
-                RunEvent(type="run_completed", payload={"taskId": request.task_id}),
-            )
+            await self._publish(request, RunEvent(type="run_completed", payload={"taskId": request.task_id}))
         except Exception as exc:
             self.store.update_job_status(request.run_id, "failed")
             self.store.update_task_status(request.task_id, "failed", f"失败 · {exc}")
-            await self.event_bus.publish(
-                request.run_id,
+            await self._publish(
+                request,
                 RunEvent(type="run_failed", payload={"taskId": request.task_id, "error": str(exc)}),
             )
+
+    async def _publish(self, request: AgentRunRequest, event: RunEvent) -> None:
+        await self.event_bus.publish(request.run_id, event)
+        await self.event_bus.publish(f"task:{request.task_id}", event)
 
     async def _complete(self, prompt: str, workspace_summary: str) -> str:
         if not self.settings.deepseek_api_key:

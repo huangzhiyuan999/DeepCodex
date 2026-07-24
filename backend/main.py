@@ -82,7 +82,9 @@ async def create_run(request: RunCreateRequest, background_tasks: BackgroundTask
     )
     store.update_task_status(request.task_id, "running", "运行中 · 等待模型响应")
     store.add_message(request.task_id, "user", request.prompt)
-    await event_bus.publish(run_id, RunEvent(type="run_started", payload={"taskId": request.task_id, "prompt": request.prompt}))
+    run_started = RunEvent(type="run_started", payload={"taskId": request.task_id, "prompt": request.prompt})
+    await event_bus.publish(run_id, run_started)
+    await event_bus.publish(f"task:{request.task_id}", run_started)
     runtime = AgentRuntime(settings=get_settings(), store=store, event_bus=event_bus)
     background_tasks.add_task(
         runtime.run,
@@ -105,6 +107,15 @@ async def stream_run_events(run_id: str) -> StreamingResponse:
     return StreamingResponse(stream(), media_type="text/event-stream")
 
 
+@app.get("/api/tasks/{task_id}/events")
+async def stream_task_events(task_id: str) -> StreamingResponse:
+    async def stream():
+        async for event in event_bus.subscribe(f"task:{task_id}"):
+            yield event.to_sse()
+
+    return StreamingResponse(stream(), media_type="text/event-stream")
+
+
 @app.post("/api/approvals/{approval_id}")
 async def approve_command(approval_id: str, request: ApprovalRequest) -> dict[str, str]:
     status = "approved" if request.decision == "allow" else "denied"
@@ -119,5 +130,8 @@ async def stop_run(run_id: str) -> dict[str, str]:
     task_id = job.get("task_id")
     if task_id:
         store.update_task_status(str(task_id), "stopped", "已停止 · 用户中断")
-    await event_bus.publish(run_id, RunEvent(type="run_stopped", payload={"runId": run_id}))
+    run_stopped = RunEvent(type="run_stopped", payload={"runId": run_id, "taskId": task_id})
+    await event_bus.publish(run_id, run_stopped)
+    if task_id:
+        await event_bus.publish(f"task:{task_id}", run_stopped)
     return {"id": run_id, "status": "stopped"}
