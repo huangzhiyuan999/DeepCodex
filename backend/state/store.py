@@ -155,6 +155,57 @@ class StateStore:
         self.append_session_event(task_id, "tool_call_recorded", {"id": tool_call_id, "name": name, "status": status})
         return tool_call_id
 
+    def create_job(
+        self,
+        kind: str,
+        status: str,
+        task_id: str | None = None,
+        payload_json: dict[str, Any] | None = None,
+        job_id: str | None = None,
+    ) -> str:
+        resolved_job_id = job_id or self._new_id("job")
+        now = utc_now()
+        payload = payload_json or {}
+        with self._conn:
+            self._conn.execute(
+                """
+                INSERT INTO jobs (
+                    id, task_id, kind, status, payload_json, created_at, updated_at
+                ) VALUES (?, ?, ?, ?, ?, ?, ?)
+                """,
+                (
+                    resolved_job_id,
+                    task_id,
+                    kind,
+                    status,
+                    json.dumps(payload, ensure_ascii=False),
+                    now,
+                    now,
+                ),
+            )
+        if task_id:
+            self.append_session_event(
+                task_id,
+                "job_created",
+                {"id": resolved_job_id, "kind": kind, "status": status, "payload": payload},
+            )
+        return resolved_job_id
+
+    def update_job_status(self, job_id: str, status: str) -> dict[str, Any]:
+        row = self._conn.execute("SELECT task_id, payload_json FROM jobs WHERE id = ?", (job_id,)).fetchone()
+        if row is None:
+            raise KeyError(f"Job not found: {job_id}")
+        now = utc_now()
+        with self._conn:
+            self._conn.execute(
+                "UPDATE jobs SET status = ?, updated_at = ? WHERE id = ?",
+                (status, now, job_id),
+            )
+        job = {"id": job_id, "task_id": row["task_id"], "payload_json": json.loads(row["payload_json"] or "{}")}
+        if row["task_id"]:
+            self.append_session_event(row["task_id"], "job_status_updated", {"id": job_id, "status": status})
+        return job
+
     def append_session_event(self, task_id: str, event_type: str, payload: dict[str, Any]) -> None:
         event = {
             "taskId": task_id,
