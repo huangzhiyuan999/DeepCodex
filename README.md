@@ -18,6 +18,8 @@ F:\deepclaude
     run_events.py
     state
       store.py
+    tools
+      workspace.py
     requirements.txt
   src
     api
