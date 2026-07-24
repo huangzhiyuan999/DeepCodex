@@ -227,6 +227,19 @@ class StateStore:
         ).fetchall()
         return [dict(row) for row in rows]
 
+    def get_task(self, task_id: str) -> dict[str, Any]:
+        row = self._conn.execute(
+            """
+            SELECT id, title, workspace_path, model, status, summary, rollout_path, created_at, updated_at
+            FROM tasks
+            WHERE id = ?
+            """,
+            (task_id,),
+        ).fetchone()
+        if row is None:
+            raise KeyError(f"Task not found: {task_id}")
+        return dict(row)
+
     def list_messages(self, task_id: str) -> list[dict[str, Any]]:
         rows = self._conn.execute(
             """

@@ -69,6 +69,8 @@ class WorkspaceTools:
         result = subprocess.run(
             ["git", "diff", "--no-ext-diff"],
             cwd=self.workspace_root,
+            encoding="utf-8",
+            errors="replace",
             text=True,
             stdout=subprocess.PIPE,
             stderr=subprocess.STDOUT,

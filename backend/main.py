@@ -3,12 +3,13 @@ from __future__ import annotations
 from functools import lru_cache
 from uuid import uuid4
 
-from fastapi import FastAPI
+from fastapi import BackgroundTasks, FastAPI
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import StreamingResponse
 from pydantic import BaseModel
 
 from .config import get_settings
+from .agent.runtime import AgentRunRequest, AgentRuntime
 from .run_events import RunEvent, event_bus
 from .state import StateStore
 
@@ -68,9 +69,10 @@ async def create_task(request: TaskCreateRequest) -> dict[str, str]:
 
 
 @app.post("/api/runs")
-async def create_run(request: RunCreateRequest) -> dict[str, str]:
+async def create_run(request: RunCreateRequest, background_tasks: BackgroundTasks) -> dict[str, str]:
     run_id = str(uuid4())
     store = get_store()
+    task = store.get_task(request.task_id)
     store.create_job(
         job_id=run_id,
         task_id=request.task_id,
@@ -81,6 +83,16 @@ async def create_run(request: RunCreateRequest) -> dict[str, str]:
     store.update_task_status(request.task_id, "running", "运行中 · 等待模型响应")
     store.add_message(request.task_id, "user", request.prompt)
     await event_bus.publish(run_id, RunEvent(type="run_started", payload={"taskId": request.task_id, "prompt": request.prompt}))
+    runtime = AgentRuntime(settings=get_settings(), store=store, event_bus=event_bus)
+    background_tasks.add_task(
+        runtime.run,
+        AgentRunRequest(
+            run_id=run_id,
+            task_id=request.task_id,
+            prompt=request.prompt,
+            workspace_path=task["workspace_path"],
+        ),
+    )
     return {"id": run_id}
 
 
