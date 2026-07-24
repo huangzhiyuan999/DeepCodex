@@ -48,6 +48,13 @@ npm run build
 
 Node packages stay in local `node_modules` under `F:\deepclaude`.
 
+The frontend uses the mock agent client by default. To call the local FastAPI backend, create a project-local frontend env file:
+
+```env
+VITE_API_MODE=real
+VITE_API_BASE_URL=http://127.0.0.1:8000
+```
+
 ## Backend Setup
 
 Create a local virtual environment inside this folder:

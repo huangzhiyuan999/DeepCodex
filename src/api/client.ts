@@ -7,6 +7,7 @@ import type {
   Unsubscribe,
 } from "./types";
 import { mockClient } from "./mockClient";
+import { httpClient } from "./httpClient";
 
 export interface AgentClient {
   listTasks(): Promise<AgentTask[]>;
@@ -18,4 +19,4 @@ export interface AgentClient {
   subscribeRunEvents(taskId: string, handler: RunEventHandler): Unsubscribe;
 }
 
-export const agentClient: AgentClient = mockClient;
+export const agentClient: AgentClient = import.meta.env.VITE_API_MODE === "real" ? httpClient : mockClient;
